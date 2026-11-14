@@ -21,6 +21,7 @@
 ## APK
 
 - 파일: [`apk/PickMeUp_PickMeUp_release.apk`](apk/PickMeUp_PickMeUp_release.apk) (release 빌드, 서명됨)
+- 같은 파일을 [GitHub Release v1.0.0](../../releases/tag/v1.0.0)에도 올려 두었습니다.
 - 패키지명: `com.pickmeup.app` · versionName `1.0.0` · minSdk 28 · targetSdk 34
 
 ## 실행 방법
