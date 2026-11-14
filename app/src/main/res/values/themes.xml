@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 시작 시 흰 화면 깜빡임 없이 남색 배경으로 바로 표시 -->
+    <style name="Theme.PickMeUp" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/pmu_bg</item>
+        <item name="android:statusBarColor">@color/pmu_bg</item>
+        <item name="android:navigationBarColor">@color/pmu_bg</item>
+        <item name="android:colorAccent">#2DD4BF</item>
+    </style>
+</resources>

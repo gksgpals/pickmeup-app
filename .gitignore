@@ -1,0 +1,14 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+# 서명 키와 비밀값은 저장소에 넣지 않습니다
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
