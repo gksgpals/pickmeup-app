@@ -57,7 +57,7 @@
 ## 🔄 픽업 흐름
 
 ```mermaid
-flowchart LR
+flowchart TD
     A([🎙️ 음성·터치 입력]) --> B{준비 시간<br/>10분 이상?}
     B -- 예 --> C[🅿️ 무료 대기 장소로 안내]
     C --> D[⏱️ 대기 모드<br/>EPB 감지]
