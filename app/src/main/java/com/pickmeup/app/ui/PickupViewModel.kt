@@ -433,7 +433,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             current.selectedBoardingId else ranked.firstOrNull()?.spot?.id
         val boarding = ranked.firstOrNull { it.spot.id == boardingId }?.spot
         val remainingMinutes = current.readyAtMillis?.let {
-            ((it - System.currentTimeMillis()).coerceAtLeast(0L) / 60_000L).toInt()
+            remainingMinutesForAdvice(it - System.currentTimeMillis())
         } ?: req.readyInMinutes
         val advice = boarding?.let {
             runCatching {
@@ -781,7 +781,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         val previous = _ui.value.remainingSec
         if (remaining != previous) {
             _ui.update { it.copy(remainingSec = remaining) }
-            if (_ui.value.phase == PickupPhase.PLANNING && (previous == null || remaining / 60 != previous / 60)) recompute()
+            if (_ui.value.phase == PickupPhase.PLANNING && (previous == null || remainingMinutesForAdvice(remaining * 1000L) != remainingMinutesForAdvice(previous * 1000L))) recompute()
         }
         if (remaining <= (_ui.value.travelMinutesToBoarding ?: DEFAULT_DIRECT_ETA) * 60 &&
             _ui.value.phase in setOf(PickupPhase.WAITING, PickupPhase.TO_WAITING) && !autoReadyFired) {
@@ -958,3 +958,6 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         fun isPrefilledSmsApp(result: NotifyResult.Sent): Boolean = result.channel.contains("문자 앱")
     }
 }
+
+internal fun remainingMinutesForAdvice(remainingMillis: Long): Int =
+    ((remainingMillis.coerceAtLeast(0L) + 59_999L) / 60_000L).toInt()

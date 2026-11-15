@@ -340,7 +340,7 @@ private fun CountdownRing(remaining: Int, total: Int, size: Dp) {
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("동승자 준비까지", style = MaterialTheme.typography.titleSmall, color = Pmu.TextMuted)
+            Text("승차 지점 출발까지", style = MaterialTheme.typography.titleSmall, color = Pmu.TextMuted)
             Text(formatClock(remaining), style = MaterialTheme.typography.displayMedium, color = Pmu.Text, fontWeight = FontWeight.Bold)
         }
     }
