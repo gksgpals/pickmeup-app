@@ -182,29 +182,23 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
                 platform.voice.status,
             ) { v, n, s, o -> LinkState(v, n, s, o) }.collect { links -> _ui.update { it.copy(links = links) } }
         }
-        // 주차 브레이크: 실제 센서 또는 시연 패널 값. TO_WAITING 중 체결되는 순간 대기 모드로 전환.
         viewModelScope.launch {
-            var prev: Boolean? = null
             combine(platform.vehicle.parkingBrakeOn, simBrake) { real, sim -> (sim ?: real) to (sim != null) }
                 .collect { (on, simulated) ->
                     _ui.update { it.copy(parkingBrakeOn = on, brakeSimulated = simulated) }
-                    if (on == true && prev != true && _ui.value.phase == PickupPhase.TO_WAITING) {
-                        dispatch(PickupEvent.Parked(bySensor = true), expect = PickupPhase.WAITING)
+                    if (_ui.value.phase == PickupPhase.TO_WAITING) {
+                        dispatch(PickupEvent.Parked(bySensor = true, engaged = on == true))
                     }
-                    prev = on
                 }
         }
-        // 도어: BOARDING 중 열리는 순간 탑승 완료.
         viewModelScope.launch {
-            var prev: Boolean? = null
-            combine(platform.vehicle.anyDoorOpen, simDoor) { real, sim -> (sim ?: real) to (sim != null) }
-                .collect { (open, simulated) ->
-                    _ui.update { it.copy(anyDoorOpen = open, doorSimulated = simulated) }
-                    if (open == true && prev != true && _ui.value.phase == PickupPhase.BOARDING) {
-                        boarded(bySensor = true)
-                    }
-                    prev = open
-                }
+            combine(platform.vehicle.passengerDoors, simDoor) { real, sim ->
+                if (sim == null) real to false else mapOf("DEMO" to sim) to true
+            }.collect { (doors, simulated) ->
+                val values = doors.values.filterNotNull()
+                _ui.update { it.copy(anyDoorOpen = if (values.isEmpty()) null else values.any { it }, doorSimulated = simulated) }
+                dispatch(PickupEvent.DoorStates(doors))
+            }
         }
         // 내비 안내 종료(도착).
         viewModelScope.launch {
@@ -371,7 +365,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         boardingManuallyPicked = false
         setReadyClock(req.readyInMinutes)
         if (_ui.value.phase == PickupPhase.IDLE || _ui.value.phase == PickupPhase.PLANNING) {
-            dispatch(PickupEvent.Planned(req), expect = PickupPhase.PLANNING)
+            dispatch(PickupEvent.Planned(req))
             ensurePickup { if (it.request != req) it.copy(request = req) else it }
         }
         _ui.update { it.copy(touchInputOpen = false, selectedWaitingId = null, selectedBoardingId = null) }
@@ -384,7 +378,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         if (_ui.value.phase != PickupPhase.PLANNING) return
         val req = buildRequest() ?: return
         if (resetReadyClock) setReadyClock(req.readyInMinutes)
-        dispatch(PickupEvent.Planned(req), expect = PickupPhase.PLANNING)
+        dispatch(PickupEvent.Planned(req))
         ensurePickup { if (it.request != req) it.copy(request = req) else it }
         recompute()
     }
@@ -497,7 +491,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             }
             PickupPhase.BOARDING -> {
                 // 도착한 승차 지점을 쓸 수 없을 때: 대체 지점으로 다시 이동(경로·알림은 onPhaseChanged에서 처리)
-                dispatch(PickupEvent.StartToBoarding(spot), expect = PickupPhase.TO_BOARDING) {
+                dispatch(PickupEvent.StartToBoarding(spot)) {
                     it.copy(boardingSpot = spot)
                 }
             }
@@ -520,7 +514,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         ensurePickup { it.copy(boardingSpot = boarding) }
-        dispatch(PickupEvent.StartToWaiting(waiting), expect = PickupPhase.TO_WAITING) {
+        dispatch(PickupEvent.StartToWaiting(waiting)) {
             it.copy(
                 waitingSpot = it.waitingSpot ?: waiting,
                 boardingSpot = it.boardingSpot ?: boarding,
@@ -534,38 +528,46 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             showBanner("승차 지점을 선택해 주세요", BannerKind.WARN)
             return
         }
-        dispatch(PickupEvent.StartToBoarding(boarding), expect = PickupPhase.TO_BOARDING) {
+        dispatch(PickupEvent.StartToBoarding(boarding)) {
             it.copy(boardingSpot = it.boardingSpot ?: boarding)
         }
     }
 
     fun manualParked() {
         if (_ui.value.phase != PickupPhase.TO_WAITING) return
-        dispatch(PickupEvent.Parked(bySensor = false), expect = PickupPhase.WAITING)
+        dispatch(PickupEvent.Parked(bySensor = false))
     }
+
+    fun manualArrivedAtWaiting() {
+        if (_ui.value.phase == PickupPhase.TO_WAITING) onNaviArrived()
+    }
+
+    fun requestManualBoarding() = dispatch(PickupEvent.RequestManualBoarding)
 
     fun passengerReady(byPassengerSignal: Boolean = true) {
         val phase = _ui.value.phase
         if (phase != PickupPhase.WAITING && phase != PickupPhase.TO_WAITING) return
-        dispatch(PickupEvent.PassengerReady(byPassengerSignal), expect = PickupPhase.TO_BOARDING) {
+        dispatch(PickupEvent.PassengerReady(byPassengerSignal)) {
             it.copy(boardingSpot = it.boardingSpot ?: _ui.value.selectedBoarding?.spot)
         }
     }
 
     fun arrivedAtBoarding() {
         if (_ui.value.phase != PickupPhase.TO_BOARDING) return
-        dispatch(PickupEvent.ArrivedAtBoarding, expect = PickupPhase.BOARDING)
+        dispatch(PickupEvent.ArrivedAtBoarding)
     }
 
-    fun boarded(bySensor: Boolean) {
+    fun boarded() {
         if (_ui.value.phase != PickupPhase.BOARDING) return
-        _ui.update { it.copy(completedBySensor = bySensor) }
-        dispatch(PickupEvent.Boarded(bySensor), expect = PickupPhase.COMPLETED)
+        if (!_ui.value.pickup.boardingConfirmation) return
+        val detected = _ui.value.pickup.boardingDetected
+        _ui.update { it.copy(completedBySensor = detected) }
+        dispatch(PickupEvent.Boarded(detected))
     }
 
     fun cancel() {
         if (_ui.value.phase == PickupPhase.IDLE) return
-        dispatch(PickupEvent.Cancel, expect = PickupPhase.IDLE)
+        dispatch(PickupEvent.Cancel)
         resetSession(notice = "픽업을 취소했습니다")
         speak("픽업을 취소했습니다")
     }
@@ -601,13 +603,9 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
     private fun onNaviArrived() {
         when (_ui.value.phase) {
             PickupPhase.TO_WAITING -> {
-                if (_ui.value.arrivedAtWaiting) return
-                _ui.update { it.copy(arrivedAtWaiting = true) }
-                if (_ui.value.parkingBrakeOn == true) {
-                    dispatch(PickupEvent.Parked(bySensor = true), expect = PickupPhase.WAITING)
-                } else {
-                    speak("대기 장소에 도착했습니다. 주차 브레이크를 체결하면 대기 모드로 전환합니다")
-                }
+                dispatch(PickupEvent.ArrivedAtWaiting)
+                _ui.update { it.copy(arrivedAtWaiting = it.pickup.arrivedAtWaiting) }
+                if (_ui.value.phase == PickupPhase.TO_WAITING) speak("대기 장소에 도착했습니다. 주차 브레이크를 확인해 주세요")
             }
             PickupPhase.TO_BOARDING -> arrivedAtBoarding()
             else -> Unit
@@ -615,12 +613,10 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 상태 머신에 이벤트를 전달합니다. 화면은 이 단계에서만 해당 버튼을 보여 주므로,
-     * 리듀서가 전환을 거부하더라도 시연이 멈추지 않도록 [expect] 단계로 맞춥니다.
+     * 상태 머신에 이벤트를 전달합니다. 허용되지 않은 전이는 강제로 보정하지 않습니다.
      */
     private fun dispatch(
         event: PickupEvent,
-        expect: PickupPhase? = null,
         patch: (PickupState) -> PickupState = { it },
     ) {
         val before = _ui.value.pickup
@@ -629,10 +625,6 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         } catch (t: Throwable) {
             Log.w(TAG, "reduce 실패: $event", t)
             before
-        }
-        if (expect != null && after.phase != expect) {
-            Log.w(TAG, "리듀서 결과 ${after.phase} ≠ 기대 $expect ($event) → 기대 단계로 보정")
-            after = after.copy(phase = expect)
         }
         after = patch(after)
         _ui.update { it.copy(pickup = after) }
@@ -648,6 +640,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             PickupPhase.TO_WAITING -> {
                 _ui.update { it.copy(arrivedAtWaiting = false, waitingSkipped = false) }
                 state.waitingSpot?.let { routeTo(it) }
+                dispatch(PickupEvent.Parked(bySensor = true, engaged = _ui.value.parkingBrakeOn == true))
                 speak("대기 장소로 안내합니다. ${state.waitingSpot?.name.orEmpty()}")
             }
             PickupPhase.WAITING -> {
@@ -679,7 +672,8 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             PickupPhase.BOARDING -> {
                 stopTicker()
                 simDoor.value = null
-                speak("승차 지점에 도착했습니다. 동승자가 탑승하면 자동으로 완료됩니다")
+                dispatch(PickupEvent.DoorStates(platform.vehicle.passengerDoors.value))
+                speak("승차 지점에 도착했습니다. 탑승 후 완료를 확인해 주세요")
             }
             PickupPhase.COMPLETED -> {
                 stopTicker()
@@ -799,25 +793,18 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 주차 브레이크 체결/해제 시뮬레이션(센서 경로와 같은 처리). */
     fun demoToggleBrake() {
-        val on = _ui.value.parkingBrakeOn == true
-        if (_ui.value.phase == PickupPhase.TO_WAITING) {
-            // 대기 장소 이동 중에는 항상 "체결"로 동작. 이미 체결 상태(정지한 에뮬레이터 등)면 엣지가 없으므로 직접 전환.
-            simBrake.value = true
-            if (on) dispatch(PickupEvent.Parked(bySensor = true), expect = PickupPhase.WAITING)
-            return
-        }
-        simBrake.value = !on
+        simBrake.value = _ui.value.parkingBrakeOn != true
     }
 
     /** 도어 열림 시뮬레이션: 1.5초 열렸다 닫힘. */
     fun demoDoorPulse() {
-        if (_ui.value.phase == PickupPhase.BOARDING && _ui.value.anyDoorOpen == true) {
-            boarded(bySensor = true) // 이미 열린 상태면 엣지가 생기지 않으므로 직접 처리
-            return
-        }
+        if (_ui.value.phase != PickupPhase.BOARDING) return
+        simDoor.value = false
+        dispatch(PickupEvent.DoorStates(mapOf("DEMO" to false)))
         doorPulseJob?.cancel()
-        simDoor.value = true
         doorPulseJob = viewModelScope.launch {
+            delay(100)
+            simDoor.value = true
             delay(1_500)
             simDoor.value = false
             delay(500)

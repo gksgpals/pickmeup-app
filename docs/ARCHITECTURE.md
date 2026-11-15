@@ -66,7 +66,7 @@ object MessageComposer {
 ## 픽업 흐름
 
 ```
-IDLE ─(음성/터치 입력)→ PLANNING ─┬─ 준비 시간 ≥ 10분 → TO_WAITING → WAITING(EPB/수동) ─(동승자 준비)→ TO_BOARDING
+IDLE ─(음성/터치 입력)→ PLANNING ─┬─ 준비 시간 ≥ 10분 → TO_WAITING → WAITING(대기 장소 도착 + EPB/각각 수동 확인) ─(동승자 준비)→ TO_BOARDING
                                  └─ 준비 시간 < 10분 또는 이미 나와 있음 ───────────────────────────→ TO_BOARDING
-TO_BOARDING ─(도착)→ BOARDING ─(도어 개폐/수동)→ COMPLETED
+TO_BOARDING ─(도착)→ BOARDING ─(동승자 문 개폐 또는 수동 확인 요청 → 운전자 확정)→ COMPLETED
 ```

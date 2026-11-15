@@ -238,8 +238,14 @@ fun ToWaitingScreen(state: UiState, vm: PickupViewModel, wide: Boolean) {
             )
         },
         actions = {
-            BigButton(
-                "정차 완료(수동)",
+            if (!state.pickup.arrivedAtWaiting) BigButton(
+                "대기 장소 도착 확인(수동)",
+                onClick = vm::manualArrivedAtWaiting,
+                icon = Icons.Filled.Flag,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (state.pickup.arrivedAtWaiting) BigButton(
+                "주차 브레이크 체결 확인(수동)",
                 onClick = vm::manualParked,
                 icon = Icons.Filled.TouchApp,
                 subtitle = "대기 모드 시작 · 동승자에게 위치 알림",
@@ -473,16 +479,23 @@ fun BoardingScreen(state: UiState, vm: PickupViewModel, wide: Boolean, onChangeS
                 status = state.links.vehicle,
                 simulated = state.doorSimulated,
                 value = when (state.anyDoorOpen) { true -> "도어 열림"; false -> "도어 닫힘"; null -> "신호 없음" },
-                hint = "동승자가 탑승하면 문이 열리는 것을 감지합니다. 센서가 없으면 탑승 후 아래 버튼을 눌러 주세요.",
+                hint = "앞 동승자석 또는 뒷문이 열렸다 닫히면 탑승 확인을 요청합니다. 센서가 없으면 직접 확인해 주세요.",
             )
         },
         right = {
             NotifyCard(state.notify, parked = true, onResend = vm::resendMessage)
         },
         actions = {
-            BigButton(
-                "탑승 완료(수동)",
-                onClick = { vm.boarded(bySensor = false) },
+            if (!state.pickup.boardingConfirmation) BigButton(
+                "탑승 여부 직접 확인",
+                onClick = vm::requestManualBoarding,
+                icon = Icons.Filled.TouchApp,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (state.pickup.boardingConfirmation) BigButton(
+                "동승자 탑승 완료 확정",
+                subtitle = if (state.pickup.boardingDetected) "도어 개폐가 감지되었습니다. 탑승을 확인해 주세요." else "동승자 탑승을 직접 확인해 주세요.",
+                onClick = vm::boarded,
                 icon = Icons.Filled.CheckCircle,
                 modifier = Modifier.fillMaxWidth(),
                 minHeight = 104.dp,
@@ -529,7 +542,7 @@ fun CompletedScreen(state: UiState, vm: PickupViewModel) {
                 SummaryRow("승차 지점", state.pickup.boardingSpot?.let { "${it.name} · ${it.meetingSign}" } ?: "-")
                 SummaryRow(
                     "탑승 확인",
-                    when (state.completedBySensor) { true -> "도어 개폐 센서"; false -> "운전자 확인"; null -> "-" },
+                    when (state.completedBySensor) { true -> "도어 개폐 감지 후 운전자 확인"; false -> "운전자 확인"; null -> "-" },
                 )
                 SummaryRow(
                     "동승자 알림",
