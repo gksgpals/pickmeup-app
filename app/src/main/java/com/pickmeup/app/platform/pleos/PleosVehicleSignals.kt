@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentHashMap
  *   3rd party 앱이 쓸 수 있는 getTelltalesInfo(CAR_SAFETY)를 약 1초마다 조회합니다.
  * - 도어: Door.checkDoorPositionCapabilities로 지원 영역·범위를 확인한 뒤
  *   영역별 registerDoorPosition 리스너로 변화를 구독합니다(CAR_DOORS).
- *   도어 구독이 불가능하면 DOOR_OPEN 경고등으로 대신 판단합니다.
+ *   개별 영역을 식별할 수 없으면 수동 확인으로 처리합니다.
  * - 어떤 예외가 나도 앱을 멈추지 않고 status/값(null)으로만 알립니다.
  */
 class PleosVehicleSignals(context: Context) : VehicleSignals {
@@ -51,6 +51,9 @@ class PleosVehicleSignals(context: Context) : VehicleSignals {
 
     private val _anyDoorOpen = MutableStateFlow<Boolean?>(null)
     override val anyDoorOpen: StateFlow<Boolean?> = _anyDoorOpen.asStateFlow()
+
+    private val _passengerDoors = MutableStateFlow<Map<String, Boolean?>>(emptyMap())
+    override val passengerDoors: StateFlow<Map<String, Boolean?>> = _passengerDoors.asStateFlow()
 
     private var vehicle: Vehicle? = null
     private var loopJob: Job? = null
@@ -86,7 +89,7 @@ class PleosVehicleSignals(context: Context) : VehicleSignals {
                         subscribeDoors(v)
                     } else {
                         doorsGaveUp = true
-                        Log.w(TAG, "도어 위치 구독 불가 → DOOR_OPEN 경고등으로 대체")
+                        Log.w(TAG, "도어 위치 구독 불가 → 수동 확인")
                     }
                 }
                 pollTelltales(v)
@@ -110,6 +113,7 @@ class PleosVehicleSignals(context: Context) : VehicleSignals {
         }
         doorListeners.clear()
         doorPositions.clear()
+        _passengerDoors.value = emptyMap()
         doorClosedValue.clear()
         doorsSubscribed = false
         doorsGaveUp = false
@@ -162,6 +166,7 @@ class PleosVehicleSignals(context: Context) : VehicleSignals {
             }
 
             override fun onFailed(e: Exception) {
+                updateDoor(area, null)
                 Log.w(TAG, "도어 위치 콜백 실패(${area.values.joinToString()}): ${e.message}")
             }
         }
@@ -186,13 +191,15 @@ class PleosVehicleSignals(context: Context) : VehicleSignals {
     }
 
     private fun recomputeDoors() {
-        if (doorPositions.isEmpty()) return
-        _anyDoorOpen.value = doorPositions.any { (area, pos) -> pos > (doorClosedValue[area] ?: 0) }
+        _passengerDoors.value = doorClosedValue.keys.associate { area ->
+            area.values.single().name to doorPositions[area]?.let { it > (doorClosedValue[area] ?: 0) }
+        }
+        _anyDoorOpen.value = if (doorPositions.isEmpty()) null else doorPositions.any { (area, pos) -> pos > (doorClosedValue[area] ?: 0) }
     }
 
-    /** 승하차 판단용 도어만(후드·트렁크 제외). */
+    /** 앞 동승자석과 좌우 뒷문만 허용하며 복합 영역은 제외합니다. */
     private fun isPassengerDoor(area: DoorArea): Boolean =
-        area.values.isNotEmpty() && area.values.none { it == DoorValue.HOOD || it == DoorValue.REAR }
+        area.values.size == 1 && area.values.single() in setOf(DoorValue.ROW_1_RIGHT, DoorValue.ROW_2_LEFT, DoorValue.ROW_2_RIGHT)
 
     // ---------------- 주차 브레이크(경고등) ----------------
 
@@ -208,11 +215,7 @@ class PleosVehicleSignals(context: Context) : VehicleSignals {
                         (it.type == TelltaleType.ELECTRONIC_PARKING_BRAKE || it.type == TelltaleType.PARKING_BRAKE) &&
                             it.state != TelltaleState.OFF
                     }
-                    if (!doorsSubscribed) {
-                        _anyDoorOpen.value = list.any {
-                            it.type == TelltaleType.DOOR_OPEN && it.state != TelltaleState.OFF
-                        }
-                    }
+
                 },
                 { e: Exception -> onTelltaleFailed(e) },
             )
@@ -242,6 +245,7 @@ class PleosVehicleSignals(context: Context) : VehicleSignals {
         _status.value = LinkStatus.UNAVAILABLE
         _parkingBrakeOn.value = null
         _anyDoorOpen.value = null
+        _passengerDoors.value = emptyMap()
     }
 
     private companion object {

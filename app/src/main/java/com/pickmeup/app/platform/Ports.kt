@@ -18,8 +18,10 @@ interface VehicleSignals {
     val status: StateFlow<LinkStatus>
     /** 주차 브레이크 체결 여부. 모르면 null. */
     val parkingBrakeOn: StateFlow<Boolean?>
-    /** 도어(운전석 제외 포함 아무 도어)가 열려 있는지. 모르면 null. */
+    /** 동승자 문 중 열린 문이 있는지. 모르면 null. */
     val anyDoorOpen: StateFlow<Boolean?>
+    /** 식별 가능한 동승자 도어별 열림 상태. 알 수 없으면 null. */
+    val passengerDoors: StateFlow<Map<String, Boolean?>>
     fun start()
     fun stop()
 }

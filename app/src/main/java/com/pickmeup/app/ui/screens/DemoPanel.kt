@@ -83,14 +83,14 @@ fun DemoPanel(state: UiState, vm: PickupViewModel, width: Dp) {
                 DemoButton(
                     Icons.Filled.LocalParking,
                     if (state.parkingBrakeOn == true) "주차 브레이크 해제" else "주차 브레이크 체결",
-                    "대기 장소 이동 중 체결 → 대기 모드",
+                    "도착 확인 후 체결 → 대기 모드",
                     active = state.phase == PickupPhase.TO_WAITING,
                     onClick = vm::demoToggleBrake,
                 )
                 DemoButton(
                     Icons.Filled.SensorDoor,
-                    "도어 열림",
-                    "승차 지점 도착 후 → 탑승 완료",
+                    "동승자 문 열고 닫기",
+                    "승차 지점 도착 후 → 운전자 확인 요청",
                     active = state.phase == PickupPhase.BOARDING,
                     onClick = vm::demoDoorPulse,
                 )
