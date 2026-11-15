@@ -275,8 +275,8 @@ fun WaitingScreen(state: UiState, vm: PickupViewModel, wide: Boolean, onChangeSp
             PmuCard(Modifier.fillMaxWidth(), padding = PaddingValues(26.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CountdownRing(
-                        remaining = state.remainingSec ?: 0,
-                        total = state.countdownTotalSec ?: 1,
+                        remaining = ((state.remainingSec ?: 0) - (state.travelMinutesToBoarding ?: 0) * 60).coerceAtLeast(0),
+                        total = ((state.countdownTotalSec ?: 1) - (state.travelMinutesToBoarding ?: 0) * 60).coerceAtLeast(1),
                         size = if (wide) 260.dp else 220.dp,
                     )
                     Spacer(Modifier.width(26.dp))
@@ -288,7 +288,7 @@ fun WaitingScreen(state: UiState, vm: PickupViewModel, wide: Boolean, onChangeSp
                             InfoLine(Icons.Filled.LocalParking, "현재 ${it.name}", color = Pmu.TextMuted)
                         }
                         Text(
-                            "카운트다운이 끝나면 승차 지점으로 자동 안내합니다",
+                            "출발까지 남은 시간 · 이동 시간은 시연용 추정입니다",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Pmu.TextFaint,
                         )
@@ -346,7 +346,7 @@ private fun CountdownRing(remaining: Int, total: Int, size: Dp) {
             )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("동승자 준비까지", style = MaterialTheme.typography.titleSmall, color = Pmu.TextMuted)
+            Text("승차 지점 출발까지", style = MaterialTheme.typography.titleSmall, color = Pmu.TextMuted)
             Text(formatClock(remaining), style = MaterialTheme.typography.displayMedium, color = Pmu.Text, fontWeight = FontWeight.Bold)
         }
     }

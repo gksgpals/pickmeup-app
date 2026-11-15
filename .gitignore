@@ -12,3 +12,4 @@ captures/
 *.keystore
 keystore.properties
 secrets.properties
+.gradle-user/

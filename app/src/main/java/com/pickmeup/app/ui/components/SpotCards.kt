@@ -143,7 +143,7 @@ fun WaitingSpotCard(
                     TrafficTag(ranked.traffic)
                 }
                 Spacer(Modifier.height(6.dp))
-                ranked.reasons.firstOrNull()?.let { InfoLine(Icons.Filled.Info, it, color = Pmu.Text, iconTint = Pmu.Smooth) }
+                ranked.reasons.take(2).forEach { InfoLine(Icons.Filled.Info, it, color = Pmu.Text, iconTint = Pmu.Smooth) }
                 InfoLine(Icons.AutoMirrored.Filled.AltRoute, spot.approach)
             }
             if (selected) {
