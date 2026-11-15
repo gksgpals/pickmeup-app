@@ -35,8 +35,7 @@ class AndroidPassengerNotifier(
         }
 
         if (number.isNotBlank()) {
-            if (openSmsApp(number, message)) return NotifyResult.Sent("차량 문자 앱")
-            return NotifyResult.Fallback("문자 앱을 열 수 없어요", message)
+            return openSmsApp(number, message)
         }
 
         return NotifyResult.Fallback("동승자 연락처가 없어요", message)
@@ -57,6 +56,8 @@ class AndroidPassengerNotifier(
             val code = conn.responseCode
             if (code !in 200..299) Log.w(TAG, "문자 서버 응답 $code")
             code in 200..299
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             Log.w(TAG, "문자 서버 전송 실패", t)
             false
