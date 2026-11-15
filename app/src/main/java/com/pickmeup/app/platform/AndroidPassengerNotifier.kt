@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -20,6 +22,7 @@ import java.net.URL
 class AndroidPassengerNotifier(
     context: Context,
     private val smsServerUrl: String,
+    private val parkingBrakeOn: StateFlow<Boolean?>,
 ) : PassengerNotifier {
 
     private val appContext = context.applicationContext
@@ -32,8 +35,7 @@ class AndroidPassengerNotifier(
         }
 
         if (number.isNotBlank()) {
-            if (openSmsApp(number, message)) return NotifyResult.Sent("차량 문자 앱")
-            return NotifyResult.Fallback("문자 앱을 열 수 없어요", message)
+            return openSmsApp(number, message)
         }
 
         return NotifyResult.Fallback("동승자 연락처가 없어요", message)
@@ -54,6 +56,8 @@ class AndroidPassengerNotifier(
             val code = conn.responseCode
             if (code !in 200..299) Log.w(TAG, "문자 서버 응답 $code")
             code in 200..299
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             Log.w(TAG, "문자 서버 전송 실패", t)
             false
@@ -62,20 +66,23 @@ class AndroidPassengerNotifier(
         }
     }
 
-    private suspend fun openSmsApp(number: String, text: String): Boolean = withContext(Dispatchers.Main) {
+    private suspend fun openSmsApp(number: String, text: String): NotifyResult = withContext(Dispatchers.Main) {
+        if (parkingBrakeOn.value != true) {
+            return@withContext NotifyResult.Fallback("주차 브레이크 체결이 확인되면 다시 시도해 주세요", text)
+        }
         try {
             val intent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", number, null)).apply {
                 putExtra("sms_body", text)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             appContext.startActivity(intent)
-            true
+            NotifyResult.Sent("차량 문자 앱")
         } catch (e: ActivityNotFoundException) {
             Log.w(TAG, "문자 앱 없음", e)
-            false
+            NotifyResult.Fallback("문자 앱을 열 수 없어요", text)
         } catch (t: Throwable) {
             Log.w(TAG, "문자 앱 실행 실패", t)
-            false
+            NotifyResult.Fallback("문자 앱을 열 수 없어요", text)
         }
     }
 

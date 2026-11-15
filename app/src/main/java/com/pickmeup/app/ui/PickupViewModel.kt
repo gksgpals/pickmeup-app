@@ -713,15 +713,9 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
     private fun deliver(message: String, spot: PickupSpot, kind: NotifyKind, announce: String?) {
         _ui.update { it.copy(notify = NotifyUi(sending = true, message = message, spotId = spot.id, spotName = spot.name, kind = kind)) }
         val phone = _ui.value.draft.phone.filter { it.isDigit() }.ifBlank { null }
-        // 주행 중(주차 브레이크 해제가 확인된 상태)에는 다른 앱(문자 앱)을 앞으로 띄우지 않습니다.
-        // 서버 문자는 화면 전환이 없으므로 그대로 보내고, 그 외에는 화면 안내로 대신합니다.
-        val drivingWithoutServer = _ui.value.parkingBrakeOn == false &&
-            com.pickmeup.app.BuildConfig.SMS_SERVER_URL.isBlank() && phone != null
         notifyJob?.cancel()
         notifyJob = viewModelScope.launch {
-            val result: NotifyResult = if (drivingWithoutServer) {
-                NotifyResult.Fallback("주행 중에는 문자 앱을 열지 않아요. 정차 후 전달해 주세요", message)
-            } else try {
+            val result: NotifyResult = try {
                 withTimeoutOrNull(NOTIFY_TIMEOUT_MS) { platform.notifier.notify(phone, message) }
                     ?: NotifyResult.Fallback("전송 응답이 없어 화면 안내로 전환했습니다", message)
             } catch (c: CancellationException) {

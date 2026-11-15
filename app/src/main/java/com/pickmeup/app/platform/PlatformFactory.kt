@@ -16,12 +16,13 @@ import com.pickmeup.app.platform.pleos.PleosVoiceOutput
 object PlatformFactory {
     fun create(context: Context): Platform {
         val app = context.applicationContext
+        val vehicle = PleosVehicleSignals(app)
         return Platform(
-            vehicle = PleosVehicleSignals(app),
+            vehicle = vehicle,
             navi = PleosNaviController(app),
             speech = PleosSpeechInput(app, BuildConfig.PLEOS_CLIENT_ID, BuildConfig.PLEOS_CLIENT_SECRET),
             voice = PleosVoiceOutput(app, BuildConfig.PLEOS_CLIENT_ID, BuildConfig.PLEOS_CLIENT_SECRET),
-            notifier = AndroidPassengerNotifier(app, BuildConfig.SMS_SERVER_URL),
+            notifier = AndroidPassengerNotifier(app, BuildConfig.SMS_SERVER_URL, vehicle.parkingBrakeOn),
         )
     }
 }
