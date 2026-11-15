@@ -428,14 +428,22 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
                 showBanner("현재 시각에 이용 가능한 지점이 없어 시연 시각(저녁 19:00) 기준으로 보여 드립니다", BannerKind.INFO)
             }
         }
-        val advice = runCatching { recommender.adviseWaiting(req, minuteOfDay(clock)) }
-            .onFailure { Log.w(TAG, "adviseWaiting 실패", it) }
-            .getOrNull()
-        _ui.update { s ->
-            val boardingId = when {
-                boardingManuallyPicked && ranked.any { it.spot.id == s.selectedBoardingId } -> s.selectedBoardingId
-                else -> ranked.firstOrNull()?.spot?.id
+        val current = _ui.value
+        val boardingId = if (boardingManuallyPicked && ranked.any { it.spot.id == current.selectedBoardingId })
+            current.selectedBoardingId else ranked.firstOrNull()?.spot?.id
+        val boarding = ranked.firstOrNull { it.spot.id == boardingId }?.spot
+        val remainingMinutes = current.readyAtMillis?.let {
+            ((it - System.currentTimeMillis()).coerceAtLeast(0L) / 60_000L).toInt()
+        } ?: req.readyInMinutes
+        val advice = boarding?.let {
+            runCatching {
+                recommender.adviseWaiting(req, minuteOfDay(clock), it, remainingMinutes, DEFAULT_DIRECT_ETA) { from, to ->
+                    estimateDriveMinutes(from.stopPoint, to.stopPoint)
+                }
             }
+                .onFailure { error -> Log.w(TAG, "adviseWaiting 실패", error) }.getOrNull()
+        }
+        _ui.update { s ->
             val waitIds = advice?.waitingCandidates.orEmpty().map { it.spot.id }
             val waitingId = s.selectedWaitingId?.takeIf { it in waitIds } ?: waitIds.firstOrNull()
             s.copy(
@@ -493,6 +501,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(boardingSpot = spot)
                 }
             }
+            PickupPhase.PLANNING -> recompute()
             else -> Unit
         }
     }
@@ -502,6 +511,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
     // ───────────────────────── 단계 전환 ─────────────────────────
 
     fun startToWaiting() {
+        recompute()
         val s = _ui.value
         val waiting = s.selectedWaiting?.spot ?: s.waitAdvice?.waitingCandidates?.firstOrNull()?.spot
         val boarding = s.selectedBoarding?.spot ?: s.ranked.firstOrNull()?.spot
@@ -641,16 +651,11 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
                 speak("대기 장소로 안내합니다. ${state.waitingSpot?.name.orEmpty()}")
             }
             PickupPhase.WAITING -> {
-                // 남은 준비 시간이 너무 짧으면 최소 1분은 대기 모드를 보여 줍니다.
-                val now = System.currentTimeMillis()
-                val readyAt = _ui.value.readyAtMillis
-                if (readyAt == null || readyAt - now < 60_000L) {
-                    _ui.update { it.copy(readyAtMillis = now + 60_000L, countdownTotalSec = 60, remainingSec = 60) }
-                }
                 autoReadyFired = false
                 startTicker()
                 val boarding = state.boardingSpot ?: _ui.value.selectedBoarding?.spot
                 sendWaitingMessage(boarding, announce = "대기 모드입니다.")
+                tick()
             }
             PickupPhase.TO_BOARDING -> {
                 simBrake.value = null // 승차 지점으로 출발 = 주차 브레이크 해제
@@ -661,7 +666,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
                 val alreadyNotified = n != null && n.kind == NotifyKind.MEETING && n.spotId == boarding.id
                 if (!alreadyNotified) {
                     val eta = when (from) {
-                        PickupPhase.PLANNING -> maxOf(state.request?.readyInMinutes ?: 0, DEFAULT_DIRECT_ETA)
+                        PickupPhase.PLANNING -> DEFAULT_DIRECT_ETA
                         PickupPhase.WAITING, PickupPhase.TO_WAITING ->
                             _ui.value.travelMinutesToBoarding ?: DEFAULT_DIRECT_ETA
                         else -> DEFAULT_DIRECT_ETA
@@ -773,10 +778,15 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
     private fun tick() {
         val readyAt = _ui.value.readyAtMillis ?: return
         val remaining = ((readyAt - System.currentTimeMillis() + 999) / 1000).toInt().coerceAtLeast(0)
-        if (remaining != _ui.value.remainingSec) _ui.update { it.copy(remainingSec = remaining) }
-        if (remaining == 0 && _ui.value.phase == PickupPhase.WAITING && !autoReadyFired) {
+        val previous = _ui.value.remainingSec
+        if (remaining != previous) {
+            _ui.update { it.copy(remainingSec = remaining) }
+            if (_ui.value.phase == PickupPhase.PLANNING && (previous == null || remaining / 60 != previous / 60)) recompute()
+        }
+        if (remaining <= (_ui.value.travelMinutesToBoarding ?: DEFAULT_DIRECT_ETA) * 60 &&
+            _ui.value.phase in setOf(PickupPhase.WAITING, PickupPhase.TO_WAITING) && !autoReadyFired) {
             autoReadyFired = true
-            showBanner("동승자 준비 시간이 되어 승차 지점으로 안내를 전환합니다", BannerKind.INFO)
+            showBanner("승차 지점 이동 시간에 맞춰 안내를 전환합니다", BannerKind.INFO)
             passengerReady(byPassengerSignal = false)
         }
     }
@@ -903,8 +913,8 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         if (SampleHubRepository.HANBIT_ID in ids) {
             list += DemoPreset(
                 title = "비 오는 저녁 · 상가 친구 픽업",
-                subtitle = "준비 10분 → 거점 선택 → 무료 대기 장소 경유",
-                utterance = "상가 동문에서 친구 태울 거야. 10분 정도 걸린대",
+                subtitle = "준비 20분 → 거점 선택 → 대기 장소 경유",
+                utterance = "상가 동문에서 친구 태울 거야. 20분 정도 걸린대",
                 icon = PresetIcon.RAIN,
             )
             list += DemoPreset(

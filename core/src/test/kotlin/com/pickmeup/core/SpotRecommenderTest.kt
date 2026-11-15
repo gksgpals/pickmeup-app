@@ -121,32 +121,34 @@ class SpotRecommenderTest {
     }
 
     @Test
-    fun waitThreshold_nineVsTen() {
+    fun waitThreshold_usesSlackRatherThanPassengerPreparation() {
         val recommender = SpotRecommender(SimulatedTraffic())
-        val nine = recommender.adviseWaiting(req(hanbit, ready = WAIT_THRESHOLD_MINUTES - 1), tenAm)
-        assertFalse(nine.shouldWait)
-        assertTrue(nine.waitingCandidates.isEmpty())
-        assertTrue(nine.message.contains("바로 승차 지점"))
-        val ten = recommender.adviseWaiting(req(hanbit, ready = WAIT_THRESHOLD_MINUTES), tenAm)
+        val boarding = hanbit.spots.first { it.boardingAllowed }
+        fun advice(remaining: Int) = recommender.adviseWaiting(req(hanbit, ready = remaining), tenAm, boarding, remaining, 5) { _, _ -> 1 }
+        for (remaining in listOf(0, 5, 14)) {
+            assertFalse(advice(remaining).shouldWait)
+            assertTrue(advice(remaining).waitingCandidates.isEmpty())
+        }
+        val ten = advice(15)
         assertTrue(ten.shouldWait)
-        assertTrue(ten.waitingCandidates.all { it.spot.waitingAllowed })
-        assertEquals(listOf("hanbit-s6", "hanbit-s5", "hanbit-s4"), ten.waitingCandidates.map { it.spot.id })
-        assertTrue(ten.message.contains("10분"))
-        assertFalse(recommender.adviseWaiting(req(hanbit, ready = 0), tenAm).shouldWait)
+        assertTrue(ten.message.contains("시간 여유 10분"))
+        assertTrue(ten.waitingCandidates.first().reasons.first().contains("실제 대기 가능 약 9분"))
     }
 
     @Test
-    fun waiting_freeFirst_thenPartial_thenPaid() {
+    fun waiting_excludesDetoursWithoutWaitingTimeAndUsesActualWaitForFreeClass() {
         val recommender = SpotRecommender(SimulatedTraffic())
-        val twenty = recommender.adviseWaiting(req(nuri, ready = 20), tenAm)
-        // 무료 30분(전부 무료) → 무료 10분(일부 무료) → 유료
-        assertEquals(listOf("nuri-s4", "nuri-s3", "nuri-s5"), twenty.waitingCandidates.map { it.spot.id })
-        assertEquals(listOf(1, 2, 3), twenty.waitingCandidates.map { it.rank })
-        assertTrue(twenty.waitingCandidates[1].reasons.first().contains("이후 유료"))
-        assertTrue(twenty.waitingCandidates[2].reasons.first().contains("유료"))
-        val ten = recommender.adviseWaiting(req(nuri, ready = 10), tenAm)
-        assertEquals(listOf("nuri-s3", "nuri-s4", "nuri-s5"), ten.waitingCandidates.map { it.spot.id })
-        assertEquals(TrafficLevel.UNKNOWN, ten.waitingCandidates[0].traffic)
+        val boarding = nuri.spots.first { it.boardingAllowed }
+        val result = recommender.adviseWaiting(req(nuri, ready = 25), tenAm, boarding, 25, 5) { spot, _ ->
+            when (spot.id) { "nuri-s3" -> 12; "nuri-s5" -> 20; else -> 1 }
+        }
+        assertTrue(result.shouldWait)
+        assertFalse(result.waitingCandidates.any { it.spot.id == "nuri-s5" })
+        val partial = result.waitingCandidates.first { it.spot.id == "nuri-s3" }
+        assertTrue(partial.reasons[1].contains("예상 대기 8분"))
+        val none = recommender.adviseWaiting(req(nuri), tenAm, boarding, 15, 5) { _, _ -> 10 }
+        assertFalse(none.shouldWait)
+        assertTrue(none.waitingCandidates.isEmpty())
     }
 
     @Test

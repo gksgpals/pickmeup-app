@@ -110,56 +110,43 @@ class SpotRecommender(private val traffic: TrafficProvider) {
         }
     }
 
-    fun adviseWaiting(request: PickupRequest, minuteOfDay: Int): WaitAdvice {
-        val ready = request.readyInMinutes
-        if (ready < WAIT_THRESHOLD_MINUTES) {
-            val msg = if (ready <= 0) "동승자가 이미 나와 있어 바로 승차 지점으로 안내합니다."
-            else "약 ${ready}분 뒤면 나오니 대기 없이 바로 승차 지점으로 안내합니다."
-            return WaitAdvice(shouldWait = false, waitingCandidates = emptyList(), message = msg)
+    /** 시연용 추정: 출발지→대기 장소는 직행 시간과 같다고 가정합니다. */
+    fun adviseWaiting(
+        request: PickupRequest,
+        minuteOfDay: Int,
+        boarding: PickupSpot,
+        remainingMinutes: Int,
+        directMinutes: Int,
+        travelToBoarding: (PickupSpot, PickupSpot) -> Int,
+    ): WaitAdvice {
+        val slack = remainingMinutes - directMinutes
+        val summary = "직행 약 ${directMinutes}분 · 시간 여유 ${slack}분 (시연용 추정)"
+        if (slack < WAIT_THRESHOLD_MINUTES) {
+            return WaitAdvice(false, emptyList(), "$summary. 대기 없이 바로 승차 지점으로 안내합니다.")
         }
-
-        val spots = request.hub.spots.filter { it.waitingAllowed && it.available.contains(minuteOfDay) }
-        if (spots.isEmpty()) {
-            return WaitAdvice(
-                shouldWait = false,
-                waitingCandidates = emptyList(),
-                message = "동승자 준비까지 약 ${ready}분 걸리지만 이 거점에는 등록된 대기 장소가 없습니다. " +
-                    "준비 시간에 맞춰 출발한 뒤 승차 지점으로 안내합니다.",
-            )
-        }
-
-        val ordered = spots.sortedWith(
-            compareBy<PickupSpot>({ freeClass(it, ready) }, { it.type.priority }, { it.walkMeters }, { it.id }),
-        )
-        val candidates = ordered.mapIndexed { i, spot ->
-            val lv = traffic.levelOf(spot.approachLinkId)
-            RankedSpot(
-                spot = spot,
-                rank = i + 1,
-                traffic = lv,
-                reasons = listOf(
-                    freeReason(spot, ready),
-                    "${spot.type.label} (기본 ${spot.type.priority}순위 유형)",
-                    "${spot.roadSide.label} 정차",
-                    trafficReason(lv),
-                ),
-                reordered = false,
-            )
-        }
-
-        val top = ordered.first()
-        val anyFree = ordered.any { freeClass(it, ready) == 0 }
-        val message = buildString {
-            append("동승자 준비까지 약 ${ready}분 걸려 도로변 정차 대신 근처 대기 장소를 먼저 안내합니다. ")
-            if (anyFree) {
-                append("무료로 기다릴 수 있는 '${top.name}'을(를) 추천합니다.")
-            } else if (freeClass(top, ready) == 1) {
-                append("예상 대기 시간을 모두 무료로 기다릴 곳이 없어, 무료 시간이 가장 긴 '${top.name}'을(를) 추천합니다.")
-            } else {
-                append("무료 대기 장소가 없어 유료 대기 후보를 안내합니다. 1순위는 '${top.name}'입니다.")
+        // 실제 차량 위치가 없어 출발지→대기 장소는 직행 시간과 같다고 가정합니다.
+        val eligible = request.hub.spots.asSequence()
+            .filter { it.waitingAllowed && it.available.contains(minuteOfDay) }
+            .map { spot ->
+                val detour = travelToBoarding(spot, boarding).coerceAtLeast(0)
+                Triple(spot, detour, slack - detour)
             }
+            .filter { it.third > 0 }
+            .sortedWith(compareBy<Triple<PickupSpot, Int, Int>>(
+                { freeClass(it.first, it.third) }, { it.first.type.priority },
+                { it.first.walkMeters }, { it.first.id },
+            )).toList()
+        if (eligible.isEmpty()) {
+            return WaitAdvice(false, emptyList(), "$summary. 이용 가능한 대기 후보가 없어 바로 승차 지점으로 안내합니다.")
         }
-        return WaitAdvice(shouldWait = true, waitingCandidates = candidates, message = message)
+        val candidates = eligible.mapIndexed { index, (spot, detour, wait) ->
+            val level = traffic.levelOf(spot.approachLinkId)
+            RankedSpot(spot, index + 1, level, listOf(
+                "우회 약 ${detour}분 · 실제 대기 가능 약 ${wait}분 (시연용 추정)",
+                freeReason(spot, wait), trafficReason(level),
+            ), false)
+        }
+        return WaitAdvice(true, candidates, "$summary. 대기 장소까지는 직행 시간과 같다고 가정합니다. 우회 시간과 실제 대기 가능 시간을 비교해 추천합니다.")
     }
 
     private fun servesEntrance(hub: Hub, spot: PickupSpot, entranceId: String): Boolean {

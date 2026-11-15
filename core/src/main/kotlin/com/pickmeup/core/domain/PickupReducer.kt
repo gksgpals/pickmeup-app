@@ -12,8 +12,8 @@ import com.pickmeup.core.domain.PickupPhase.WAITING
  * 픽업 상태 머신 (순수 함수).
  *
  * ```
- * IDLE ─(입력)→ PLANNING ─┬─ 준비 ≥ 10분 → TO_WAITING ─(EPB/수동)→ WAITING ─(동승자 준비)→ TO_BOARDING
- *                         └─ 준비 < 10분 ────────────────────────────────────────────→ TO_BOARDING
+ * IDLE ─(입력)→ PLANNING ─┬─ 직행 후 여유 ≥ 10분 → TO_WAITING ─(EPB/수동)→ WAITING ─(동승자 준비)→ TO_BOARDING
+ *                         └─ 직행 후 여유 < 10분 ────────────────────────────────────────────→ TO_BOARDING
  * TO_BOARDING ─(도착)→ BOARDING ─(도어 개폐/수동)→ COMPLETED
  * ```
  *
@@ -86,7 +86,7 @@ object PickupReducer {
                 if (spot == null) {
                     state.copy(notice = "동승자가 준비되었습니다. 승차 지점을 선택해 주세요.")
                 } else {
-                    val cause = if (e.byPassengerSignal) "동승자 준비 완료 신호를 받아" else "준비 시간이 끝나"
+                    val cause = if (e.byPassengerSignal) "동승자 준비 완료 신호를 받아" else "승차 지점 출발 시간이 되어"
                     state.copy(
                         phase = TO_BOARDING,
                         notice = "$cause 승차 지점 '${spot.name}'(으)로 안내를 전환합니다.",
