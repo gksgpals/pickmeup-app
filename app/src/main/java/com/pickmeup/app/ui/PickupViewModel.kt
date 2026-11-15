@@ -365,7 +365,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         boardingManuallyPicked = false
         setReadyClock(req.readyInMinutes)
         if (_ui.value.phase == PickupPhase.IDLE || _ui.value.phase == PickupPhase.PLANNING) {
-            dispatch(PickupEvent.Planned(req), expect = PickupPhase.PLANNING)
+            dispatch(PickupEvent.Planned(req))
             ensurePickup { if (it.request != req) it.copy(request = req) else it }
         }
         _ui.update { it.copy(touchInputOpen = false, selectedWaitingId = null, selectedBoardingId = null) }
@@ -378,7 +378,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
         if (_ui.value.phase != PickupPhase.PLANNING) return
         val req = buildRequest() ?: return
         if (resetReadyClock) setReadyClock(req.readyInMinutes)
-        dispatch(PickupEvent.Planned(req), expect = PickupPhase.PLANNING)
+        dispatch(PickupEvent.Planned(req))
         ensurePickup { if (it.request != req) it.copy(request = req) else it }
         recompute()
     }
@@ -483,7 +483,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             }
             PickupPhase.BOARDING -> {
                 // 도착한 승차 지점을 쓸 수 없을 때: 대체 지점으로 다시 이동(경로·알림은 onPhaseChanged에서 처리)
-                dispatch(PickupEvent.StartToBoarding(spot), expect = PickupPhase.TO_BOARDING) {
+                dispatch(PickupEvent.StartToBoarding(spot)) {
                     it.copy(boardingSpot = spot)
                 }
             }
@@ -504,7 +504,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         ensurePickup { it.copy(boardingSpot = boarding) }
-        dispatch(PickupEvent.StartToWaiting(waiting), expect = PickupPhase.TO_WAITING) {
+        dispatch(PickupEvent.StartToWaiting(waiting)) {
             it.copy(
                 waitingSpot = it.waitingSpot ?: waiting,
                 boardingSpot = it.boardingSpot ?: boarding,
@@ -518,7 +518,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
             showBanner("승차 지점을 선택해 주세요", BannerKind.WARN)
             return
         }
-        dispatch(PickupEvent.StartToBoarding(boarding), expect = PickupPhase.TO_BOARDING) {
+        dispatch(PickupEvent.StartToBoarding(boarding)) {
             it.copy(boardingSpot = it.boardingSpot ?: boarding)
         }
     }
@@ -537,17 +537,17 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
     fun passengerReady(byPassengerSignal: Boolean = true) {
         val phase = _ui.value.phase
         if (phase != PickupPhase.WAITING && phase != PickupPhase.TO_WAITING) return
-        dispatch(PickupEvent.PassengerReady(byPassengerSignal), expect = PickupPhase.TO_BOARDING) {
+        dispatch(PickupEvent.PassengerReady(byPassengerSignal)) {
             it.copy(boardingSpot = it.boardingSpot ?: _ui.value.selectedBoarding?.spot)
         }
     }
 
     fun arrivedAtBoarding() {
         if (_ui.value.phase != PickupPhase.TO_BOARDING) return
-        dispatch(PickupEvent.ArrivedAtBoarding, expect = PickupPhase.BOARDING)
+        dispatch(PickupEvent.ArrivedAtBoarding)
     }
 
-    fun boarded(bySensor: Boolean) {
+    fun boarded() {
         if (_ui.value.phase != PickupPhase.BOARDING) return
         if (!_ui.value.pickup.boardingConfirmation) return
         val detected = _ui.value.pickup.boardingDetected
@@ -557,7 +557,7 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancel() {
         if (_ui.value.phase == PickupPhase.IDLE) return
-        dispatch(PickupEvent.Cancel, expect = PickupPhase.IDLE)
+        dispatch(PickupEvent.Cancel)
         resetSession(notice = "픽업을 취소했습니다")
         speak("픽업을 취소했습니다")
     }
@@ -607,7 +607,6 @@ class PickupViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun dispatch(
         event: PickupEvent,
-        expect: PickupPhase? = null,
         patch: (PickupState) -> PickupState = { it },
     ) {
         val before = _ui.value.pickup

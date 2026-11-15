@@ -495,7 +495,7 @@ fun BoardingScreen(state: UiState, vm: PickupViewModel, wide: Boolean, onChangeS
             if (state.pickup.boardingConfirmation) BigButton(
                 "동승자 탑승 완료 확정",
                 subtitle = if (state.pickup.boardingDetected) "도어 개폐가 감지되었습니다. 탑승을 확인해 주세요." else "동승자 탑승을 직접 확인해 주세요.",
-                onClick = { vm.boarded(bySensor = state.pickup.boardingDetected) },
+                onClick = vm::boarded,
                 icon = Icons.Filled.CheckCircle,
                 modifier = Modifier.fillMaxWidth(),
                 minHeight = 104.dp,
