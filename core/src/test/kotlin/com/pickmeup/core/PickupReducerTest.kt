@@ -28,6 +28,7 @@ class PickupReducerTest {
         s = PickupReducer.reduce(s, PickupEvent.StartToWaiting(waiting))
         assertEquals(PickupPhase.TO_WAITING, s.phase)
         assertEquals(waiting, s.waitingSpot)
+        s = PickupReducer.reduce(s, PickupEvent.ArrivedAtWaiting)
         s = PickupReducer.reduce(s, PickupEvent.Parked(bySensor = true))
         assertEquals(PickupPhase.WAITING, s.phase)
         assertEquals("주차 브레이크 체결을 감지해 대기 모드로 전환했습니다.", s.notice)
@@ -36,6 +37,9 @@ class PickupReducerTest {
         assertEquals(boarding, s.boardingSpot)
         s = PickupReducer.reduce(s, PickupEvent.ArrivedAtBoarding)
         assertEquals(PickupPhase.BOARDING, s.phase)
+        s = PickupReducer.reduce(s, PickupEvent.DoorStates(mapOf("rear" to false)))
+        s = PickupReducer.reduce(s, PickupEvent.DoorStates(mapOf("rear" to true)))
+        s = PickupReducer.reduce(s, PickupEvent.DoorStates(mapOf("rear" to false)))
         s = PickupReducer.reduce(s, PickupEvent.Boarded(bySensor = true))
         assertEquals(PickupPhase.COMPLETED, s.phase)
         assertNotNull(s.notice)
@@ -46,6 +50,7 @@ class PickupReducerTest {
         val waitingState = run(
             PickupEvent.Planned(request(15)),
             PickupEvent.StartToWaiting(waiting),
+            PickupEvent.ArrivedAtWaiting,
             PickupEvent.Parked(bySensor = false),
         )
         assertEquals("정차를 확인해 대기 모드로 전환했습니다.", waitingState.notice)
@@ -79,6 +84,7 @@ class PickupReducerTest {
             PickupEvent.Planned(request(0)),
             PickupEvent.StartToBoarding(boarding),
             PickupEvent.ArrivedAtBoarding,
+            PickupEvent.RequestManualBoarding,
             PickupEvent.Boarded(bySensor = false),
         )
         assertEquals(PickupPhase.COMPLETED, s.phase)
@@ -88,6 +94,36 @@ class PickupReducerTest {
         val again = PickupReducer.reduce(s, PickupEvent.Planned(request(3)))
         assertEquals(PickupPhase.PLANNING, again.phase)
         assertNull(again.boardingSpot)
+    }
+
+    @Test
+    fun waitingRequiresArrivalAndCurrentBrakeInEitherOrder() {
+        val driving = run(PickupEvent.Planned(request(15)), PickupEvent.StartToWaiting(waiting))
+        val braked = PickupReducer.reduce(driving, PickupEvent.Parked(true))
+        assertEquals(PickupPhase.TO_WAITING, braked.phase)
+        assertEquals(PickupPhase.WAITING, PickupReducer.reduce(braked, PickupEvent.ArrivedAtWaiting).phase)
+        val arrived = PickupReducer.reduce(driving, PickupEvent.ArrivedAtWaiting)
+        assertEquals(PickupPhase.TO_WAITING, arrived.phase)
+        assertEquals(PickupPhase.WAITING, PickupReducer.reduce(arrived, PickupEvent.Parked(true)).phase)
+        val released = PickupReducer.reduce(braked, PickupEvent.Parked(true, false))
+        assertEquals(PickupPhase.TO_WAITING, PickupReducer.reduce(released, PickupEvent.ArrivedAtWaiting).phase)
+        val rerouted = PickupReducer.reduce(arrived, PickupEvent.StartToWaiting(waiting))
+        assertEquals(false, rerouted.arrivedAtWaiting)
+    }
+
+    @Test
+    fun boardingNeedsSameDoorCycleAfterArrivalAndDriverConfirmation() {
+        val driving = run(PickupEvent.Planned(request(0)), PickupEvent.StartToBoarding(boarding))
+        assertSame(driving, PickupReducer.reduce(driving, PickupEvent.DoorStates(mapOf("front" to true))))
+        var s = PickupReducer.reduce(driving, PickupEvent.ArrivedAtBoarding)
+        s = PickupReducer.reduce(s, PickupEvent.DoorStates(mapOf("front" to true, "rear" to false)))
+        s = PickupReducer.reduce(s, PickupEvent.DoorStates(mapOf("front" to false, "rear" to true)))
+        assertEquals(false, s.boardingConfirmation)
+        s = PickupReducer.reduce(s, PickupEvent.DoorStates(mapOf("front" to true, "rear" to true)))
+        s = PickupReducer.reduce(s, PickupEvent.DoorStates(mapOf("front" to false, "rear" to true)))
+        assertEquals(true, s.boardingConfirmation)
+        assertEquals(PickupPhase.BOARDING, s.phase)
+        assertEquals(PickupPhase.COMPLETED, PickupReducer.reduce(s, PickupEvent.Boarded(true)).phase)
     }
 
     @Test

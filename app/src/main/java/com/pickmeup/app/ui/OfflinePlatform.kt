@@ -21,6 +21,7 @@ internal object OfflinePlatform {
         vehicle = object : VehicleSignals {
             override val status: StateFlow<LinkStatus> = MutableStateFlow(LinkStatus.UNAVAILABLE)
             override val parkingBrakeOn: StateFlow<Boolean?> = MutableStateFlow(null)
+            override val passengerDoors: StateFlow<Map<String, Boolean?>> = MutableStateFlow(emptyMap())
             override val anyDoorOpen: StateFlow<Boolean?> = MutableStateFlow(null)
             override fun start() {}
             override fun stop() {}

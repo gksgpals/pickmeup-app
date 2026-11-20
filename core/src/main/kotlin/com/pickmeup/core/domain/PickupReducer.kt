@@ -12,9 +12,9 @@ import com.pickmeup.core.domain.PickupPhase.WAITING
  * 픽업 상태 머신 (순수 함수).
  *
  * ```
- * IDLE ─(입력)→ PLANNING ─┬─ 준비 ≥ 10분 → TO_WAITING ─(EPB/수동)→ WAITING ─(동승자 준비)→ TO_BOARDING
+ * IDLE ─(입력)→ PLANNING ─┬─ 준비 ≥ 10분 → TO_WAITING ─(도착 + EPB/수동)→ WAITING ─(동승자 준비)→ TO_BOARDING
  *                         └─ 준비 < 10분 ────────────────────────────────────────────→ TO_BOARDING
- * TO_BOARDING ─(도착)→ BOARDING ─(도어 개폐/수동)→ COMPLETED
+ * TO_BOARDING ─(도착)→ BOARDING ─(동승자 문 개폐/수동 → 운전자 확정)→ COMPLETED
  * ```
  *
  * 허용되지 않는 전이는 상태를 그대로(같은 인스턴스) 돌려줍니다.
@@ -27,6 +27,9 @@ object PickupReducer {
         is PickupEvent.StartToWaiting -> onStartToWaiting(state, event)
         is PickupEvent.StartToBoarding -> onStartToBoarding(state, event)
         is PickupEvent.Parked -> onParked(state, event)
+        PickupEvent.ArrivedAtWaiting -> onWaitingArrival(state)
+        is PickupEvent.DoorStates -> onDoors(state, event.doors)
+        PickupEvent.RequestManualBoarding -> if (state.phase == BOARDING) state.copy(boardingConfirmation = true, boardingDetected = false) else state
         is PickupEvent.PassengerReady -> onPassengerReady(state, event)
         PickupEvent.ArrivedAtBoarding -> onArrived(state)
         is PickupEvent.Boarded -> onBoarded(state, event)
@@ -52,6 +55,8 @@ object PickupReducer {
             PLANNING, TO_WAITING, TO_BOARDING, BOARDING -> state.copy(
                 phase = TO_WAITING,
                 waitingSpot = e.spot,
+                arrivedAtWaiting = false, brakeConfirmed = false,
+                doorBaseline = emptyMap(), openedDoors = emptySet(), boardingConfirmation = false, boardingDetected = false,
                 notice = if (state.phase == TO_WAITING) "대기 장소를 '${e.spot.name}'(으)로 변경했습니다."
                 else "대기 장소 '${e.spot.name}'(으)로 안내를 시작합니다.",
             )
@@ -67,16 +72,38 @@ object PickupReducer {
             TO_BOARDING, BOARDING -> "승차 지점을 '${e.spot.name}'(으)로 변경했습니다."
             else -> return state
         }
-        return state.copy(phase = TO_BOARDING, boardingSpot = e.spot, notice = notice)
+        return state.copy(phase = TO_BOARDING, boardingSpot = e.spot, notice = notice, arrivedAtWaiting = false, brakeConfirmed = false, doorBaseline = emptyMap(), openedDoors = emptySet(), boardingConfirmation = false, boardingDetected = false)
+    }
+
+    private fun onWaitingArrival(state: PickupState): PickupState {
+        if (state.phase != TO_WAITING) return state
+        val updated = state.copy(arrivedAtWaiting = true)
+        return if (updated.brakeConfirmed) updated.copy(phase = WAITING, notice = "도착과 주차 브레이크 체결을 확인해 대기 모드로 전환했습니다.") else updated.copy(notice = "대기 장소에 도착했습니다. 주차 브레이크를 체결해 주세요.")
     }
 
     private fun onParked(state: PickupState, e: PickupEvent.Parked): PickupState {
         if (state.phase != TO_WAITING) return state
-        return state.copy(
+        val updated = state.copy(brakeConfirmed = e.engaged)
+        return if (updated.arrivedAtWaiting && e.engaged) updated.copy(
             phase = WAITING,
-            notice = if (e.bySensor) "주차 브레이크 체결을 감지해 대기 모드로 전환했습니다."
-            else "정차를 확인해 대기 모드로 전환했습니다.",
-        )
+            notice = if (e.bySensor) "주차 브레이크 체결을 감지해 대기 모드로 전환했습니다." else "정차를 확인해 대기 모드로 전환했습니다.",
+        ) else updated
+    }
+
+    private fun onDoors(state: PickupState, doors: Map<String, Boolean?>): PickupState {
+        if (state.phase != BOARDING || state.boardingConfirmation) return state
+        val opened = state.openedDoors.toMutableSet()
+        var detected = false
+        doors.forEach { (door, open) ->
+            val previous = state.doorBaseline[door]
+            if (previous == false && open == true) opened.add(door)
+            if (open == null) opened.remove(door)
+            if (previous == true && open == false && opened.remove(door)) detected = true
+        }
+        opened.retainAll(doors.keys)
+        return state.copy(doorBaseline = doors, openedDoors = opened,
+            boardingConfirmation = detected, boardingDetected = detected,
+            notice = if (detected) "동승자 문 개폐가 감지되었습니다. 탑승 완료를 확인해 주세요." else state.notice)
     }
 
     private fun onPassengerReady(state: PickupState, e: PickupEvent.PassengerReady): PickupState {
@@ -110,10 +137,10 @@ object PickupReducer {
     }
 
     private fun onBoarded(state: PickupState, e: PickupEvent.Boarded): PickupState {
-        if (state.phase != BOARDING) return state
+        if (state.phase != BOARDING || !state.boardingConfirmation) return state
         return state.copy(
             phase = COMPLETED,
-            notice = if (e.bySensor) "도어 개폐를 감지해 탑승 완료로 처리했습니다. 픽업을 마칩니다."
+            notice = if (e.bySensor) "도어 개폐 후 운전자가 탑승 완료를 확인했습니다."
             else "탑승 완료를 확인했습니다. 픽업을 마칩니다.",
         )
     }

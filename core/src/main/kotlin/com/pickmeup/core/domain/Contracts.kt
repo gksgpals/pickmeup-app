@@ -36,12 +36,15 @@ sealed interface PickupEvent {
     data class StartToWaiting(val spot: PickupSpot) : PickupEvent
     data class StartToBoarding(val spot: PickupSpot) : PickupEvent
     /** 주차 브레이크 체결(EPB) 또는 운전자 "정차 완료" 터치. */
-    data class Parked(val bySensor: Boolean) : PickupEvent
+    data class Parked(val bySensor: Boolean, val engaged: Boolean = true) : PickupEvent
+    data object ArrivedAtWaiting : PickupEvent
+    data class DoorStates(val doors: Map<String, Boolean?>) : PickupEvent
+    data object RequestManualBoarding : PickupEvent
     /** 동승자 준비 완료 신호 또는 카운트다운 종료. */
     data class PassengerReady(val byPassengerSignal: Boolean) : PickupEvent
     /** 승차 지점 도착(내비 안내 종료 또는 운전자 터치). */
     data object ArrivedAtBoarding : PickupEvent
-    /** 도어 개폐 감지 또는 운전자 "탑승 완료" 터치. */
+    /** 탑승 확인 요청 후 운전자 확정. */
     data class Boarded(val bySensor: Boolean) : PickupEvent
     data object Cancel : PickupEvent
 }
@@ -53,4 +56,10 @@ data class PickupState(
     val boardingSpot: PickupSpot? = null,
     /** 사용자에게 보여줄 최근 상태 메시지. */
     val notice: String? = null,
+    val arrivedAtWaiting: Boolean = false,
+    val brakeConfirmed: Boolean = false,
+    val doorBaseline: Map<String, Boolean?> = emptyMap(),
+    val openedDoors: Set<String> = emptySet(),
+    val boardingConfirmation: Boolean = false,
+    val boardingDetected: Boolean = false,
 )
